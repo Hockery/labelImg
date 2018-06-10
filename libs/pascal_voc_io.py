@@ -31,6 +31,7 @@ class PascalVocWriter:
         '''reparsed = minidom.parseString(rough_string)
         return reparsed.toprettyxml(indent="\t", encoding=ENCODE_METHOD)'''
 
+
     def genXML(self):
         """
             Return XML root
@@ -170,3 +171,27 @@ class PascalVocReader:
                 difficult = bool(int(object_iter.find('difficult').text))
             self.addShape(label, bndbox, difficult)
         return True
+
+    def getNameAcLabel(self, ac_labels):
+        assert self.filepath.endswith(XML_EXT), "Unsupport file format"
+        parser = etree.XMLParser(encoding=ENCODE_METHOD)
+        xmltree = ElementTree.parse(self.filepath, parser=parser).getroot()
+        filename = xmltree.find('filename').text
+        try:
+            verified = xmltree.attrib['verified']
+            if verified == 'yes':
+                self.verified = True
+        except KeyError:
+            self.verified = False
+
+        for object_iter in xmltree.findall('object'):
+            bndbox = object_iter.find("bndbox")
+            label = object_iter.find('name').text
+            # Add chris
+            difficult = False
+            if object_iter.find('difficult') is not None:
+                difficult = bool(int(object_iter.find('difficult').text))
+            if label in ac_labels:
+                self.addShape(label, bndbox, difficult)
+        return True
+
