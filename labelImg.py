@@ -813,13 +813,6 @@ class MainWindow(QMainWindow, WindowMixin):
             else:
                 item.setCheckState(Qt.Unchecked)
 
-    def format_shape(self, s):
-        return dict(label=s.label,
-                    line_color=s.line_color.getRgb(),
-                    fill_color=s.fill_color.getRgb(),
-                    points=[(p.x(), p.y()) for p in s.points],
-                    # add chris
-                    difficult=s.difficult)
 
     def saveLabels(self, annotationFilePath):
         annotationFilePath = ustr(annotationFilePath)
@@ -827,7 +820,14 @@ class MainWindow(QMainWindow, WindowMixin):
             self.labelFile = LabelFile()
             self.labelFile.verified = self.canvas.verified
 
-        shapes = [self.format_shape(shape) for shape in self.canvas.shapes]
+        def format_shape(s):
+            return dict(label=s.label,
+                        line_color=s.line_color.getRgb(),
+                        fill_color=s.fill_color.getRgb(),
+                        points=[(p.x(), p.y()) for p in s.points],
+                        # add chris
+                        difficult=s.difficult)
+        shapes = [format_shape(shape) for shape in self.canvas.shapes]
         # Can add differrent annotation formats here
         try:
             if self.usingPascalVocFormat is True:
@@ -1220,6 +1220,15 @@ class MainWindow(QMainWindow, WindowMixin):
         # else:
         #     path = '.'
 
+        # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
+        def format_shape(s):
+            # print(s[1])
+            return dict(label=s[0],
+                        line_color=s[2],
+                        fill_color=s[3],
+                        points=[(p[0], p[1]) for p in s[1]],
+                        # add chris
+                        difficult=s[4])
         if self.labelFile is None:
             self.labelFile = LabelFile()
             self.labelFile.verified = self.canvas.verified
@@ -1249,13 +1258,12 @@ class MainWindow(QMainWindow, WindowMixin):
             visibleLabelSavePath = os.path.join(visibleLabelSaveDir, basename + XML_EXT)
             tVocParseReader = PascalVocReader(xmlPath)
             shapes = tVocParseReader.getShapes()
-            # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
             if len(self.showLabel) <= 0:
-                visibleShapes = [self.format_shape(shape) for shape in shapes]
+                visibleShapes = [format_shape(shape) for shape in shapes]
             else:
                 for shape in shapes:
                     if shape.label in self.showLabel:
-                        visibleShapes.append(self.format_shape(shape))
+                        visibleShapes.append(format_shape(shape))
             if len(visibleShapes) <= 0:
                 return
             else:
