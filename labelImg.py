@@ -7,6 +7,7 @@ import platform
 import re
 import sys
 import subprocess
+import shutil
 
 from functools import partial
 from collections import defaultdict
@@ -38,7 +39,7 @@ from libs.labelDialog import LabelDialog
 from libs.colorDialog import ColorDialog
 from libs.labelFile import LabelFile, LabelFileError
 from libs.toolBar import ToolBar
-from libs.pascal_voc_io import PascalVocReader
+from libs.pascal_voc_io import PascalVocReader, PascalVocFounder
 from libs.pascal_voc_io import XML_EXT
 from libs.yolo_io import YoloReader
 from libs.yolo_io import TXT_EXT
@@ -132,6 +133,8 @@ class MainWindow(QMainWindow, WindowMixin):
         listLayout = QVBoxLayout()
         listLayout.setContentsMargins(0, 0, 0, 0)
 
+        self.showLabel = []
+
         # Create a widget for using default label
         self.useDefaultLabelCheckbox = QCheckBox(u'Use default label')
         self.useDefaultLabelCheckbox.setChecked(False)
@@ -150,20 +153,32 @@ class MainWindow(QMainWindow, WindowMixin):
         self.editButton.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
 
         # Create a widget for choose image according labels
-        self.chooseLabelButton = QPushButton(u'search')
-        self.chooseLabelButton.setChecked(False)
-        self.defaultLabelTextLine = QLineEdit()
+        self.chooseLabelButton = QPushButton(u'Search')
+        self.chooseLabelButton.clicked.connect(self.importImagesAcLabel)
+        # self.chooseLabelButton.setChecked(False)
+        self.chooseLabelTextLine = QLineEdit()
         chooseLabelQHBoxLayout = QHBoxLayout()
-        chooseLabelQHBoxLayout.addWidget(self.defaultLabelTextLine)
+        chooseLabelQHBoxLayout.addWidget(self.chooseLabelTextLine)
         chooseLabelQHBoxLayout.addWidget(self.chooseLabelButton)
         chooseLabelContainer = QWidget()
         chooseLabelContainer.setLayout(chooseLabelQHBoxLayout)
+
+        # Create a widget for save images and labels as other director
+        self.visibleButton = QPushButton(u'Visible')
+        self.visibleButton.clicked.connect(self.setVisibleLabel)
+        self.visibleTextLine = QLineEdit()
+        visibleQHBoxLayout = QHBoxLayout()
+        visibleQHBoxLayout.addWidget(self.visibleTextLine)
+        visibleQHBoxLayout.addWidget(self.visibleButton)
+        visibleContainer = QWidget()
+        visibleContainer.setLayout(visibleQHBoxLayout)
 
         # Add some of widgets to listLayout
         listLayout.addWidget(self.editButton)
         listLayout.addWidget(self.diffcButton)
         listLayout.addWidget(useDefaultLabelContainer)
         listLayout.addWidget(chooseLabelContainer)
+        listLayout.addWidget(visibleContainer)
 
         # Create and add a widget for showing current label items
         self.labelList = QListWidget()
@@ -251,6 +266,9 @@ class MainWindow(QMainWindow, WindowMixin):
 
         save = action('&Save', self.saveFile,
                       'Ctrl+S', 'save', u'Save labels to file', enabled=False)
+
+        saveVisible = action('&Save Visible', self.saveVisibleLabelAndImage,
+                      'Ctrl+Shift+V', 'save-visible', u'Save visible labels add it\'s image to file', enabled=True)
 
         save_format = action('&PascalVOC', self.change_format,
                              'Ctrl+', 'format_voc', u'Change save format', enabled=True)
@@ -398,7 +416,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.paintLabelsOption.triggered.connect(self.togglePaintLabelsOption)
 
         addActions(self.menus.file,
-                   (open, opendir, changeSavedir, openAnnotation, self.menus.recentFiles, save, save_format, saveAs, close, resetAll, quit))
+                   (open, opendir, changeSavedir, openAnnotation, self.menus.recentFiles, save, saveVisible, save_format, saveAs, close, resetAll, quit))
         addActions(self.menus.help, (help, showInfo))
         addActions(self.menus.view, (
             self.autoSaving,
@@ -752,7 +770,7 @@ class MainWindow(QMainWindow, WindowMixin):
         self.shapesToItems[shape] = item
         self.labelList.addItem(item)
         for action in self.actions.onShapesPresent:
-            action.setEnabled(True)
+            action.setEnabled(False)
 
     def remLabel(self, shape):
         if shape is None:
@@ -772,7 +790,7 @@ class MainWindow(QMainWindow, WindowMixin):
             shape.difficult = difficult
             shape.close()
             s.append(shape)
-
+            # print(shape.label)
             if line_color:
                 shape.line_color = QColor(*line_color)
             else:
@@ -782,10 +800,26 @@ class MainWindow(QMainWindow, WindowMixin):
                 shape.fill_color = QColor(*fill_color)
             else:
                 shape.fill_color = generateColorByText(label)
-
             self.addLabel(shape)
 
         self.canvas.loadShapes(s)
+        
+        if len(self.showLabel) <= 0:
+            return
+        for item in self.itemsToShapes:
+            # item.setCheckState(False)
+            if item.text() in self.showLabel:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+
+    def format_shape(self, s):
+        return dict(label=s.label,
+                    line_color=s.line_color.getRgb(),
+                    fill_color=s.fill_color.getRgb(),
+                    points=[(p.x(), p.y()) for p in s.points],
+                    # add chris
+                    difficult=s.difficult)
 
     def saveLabels(self, annotationFilePath):
         annotationFilePath = ustr(annotationFilePath)
@@ -793,15 +827,7 @@ class MainWindow(QMainWindow, WindowMixin):
             self.labelFile = LabelFile()
             self.labelFile.verified = self.canvas.verified
 
-        def format_shape(s):
-            return dict(label=s.label,
-                        line_color=s.line_color.getRgb(),
-                        fill_color=s.fill_color.getRgb(),
-                        points=[(p.x(), p.y()) for p in s.points],
-                        # add chris
-                        difficult=s.difficult)
-
-        shapes = [format_shape(shape) for shape in self.canvas.shapes]
+        shapes = [self.format_shape(shape) for shape in self.canvas.shapes]
         # Can add differrent annotation formats here
         try:
             if self.usingPascalVocFormat is True:
@@ -843,6 +869,7 @@ class MainWindow(QMainWindow, WindowMixin):
     def labelItemChanged(self, item):
         shape = self.itemsToShapes[item]
         label = item.text()
+        print("the hide attribute is change!")
         if label != shape.label:
             shape.label = item.text()
             shape.line_color = generateColorByText(shape.label)
@@ -972,6 +999,29 @@ class MainWindow(QMainWindow, WindowMixin):
     def togglePolygons(self, value):
         for item, shape in self.itemsToShapes.items():
             item.setCheckState(Qt.Checked if value else Qt.Unchecked)
+            
+    def setVisibleLabel(self ):
+        self.showLabel.clear()
+        if self.visibleTextLine.text() == '':
+            # return
+            pass
+        else:
+            self.showLabel.clear()
+            labels = self.visibleTextLine.text().split(',')
+            for label in labels:
+                label = label.strip(' ')
+                # print(label+'|')
+                if not label == '':
+                    self.showLabel.append(label)
+            # print(self.showLabel)
+        if len(self.showLabel) <= 0:
+            return
+        for item in self.itemsToShapes:
+            if item.text() in self.showLabel:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked )
+        pass
 
     def loadFile(self, filePath=None):
         """Load the specified file, or the last opened file if None."""
@@ -1151,6 +1201,71 @@ class MainWindow(QMainWindow, WindowMixin):
         images.sort(key=lambda x: x.lower())
         return images
 
+
+    def warningExistsDirDialog(self,dirPath):
+        yes, no = QMessageBox.Yes, QMessageBox.No
+        msg = u'The folder \n%s \n is exists, proceed anyway?'%(dirPath)
+        return yes == QMessageBox.warning(self, u'Attention', msg, yes | no)
+
+    def makeDirs(self, dirPath):
+        if not os.path.exists(dirPath):
+            os.makedirs(dirPath)
+            return True
+        else:
+            return self.warningExistsDirDialog(dirPath)
+
+    def saveVisibleLabelAndImage(self):
+        # if self.defaultSaveDir is not None:
+        #     path = ustr(self.defaultSaveDir)
+        # else:
+        #     path = '.'
+
+        if self.labelFile is None:
+            self.labelFile = LabelFile()
+            self.labelFile.verified = self.canvas.verified
+        
+        if self.defaultSaveDir is None:
+            self.changeSavedirDialog()
+            
+        path = ustr(self.defaultSaveDir)
+
+        dirpath = ustr(QFileDialog.getExistingDirectory(self,
+                                                        '%s - Save Visible labels and images to the directory' % __appname__, path,  QFileDialog.ShowDirsOnly
+                                                        | QFileDialog.DontResolveSymlinks))
+        if dirpath is not None and len(dirpath) > 1:
+            visibleLabelSaveDir = os.path.join(os.path.abspath(dirpath),'Annotations')
+            visibleImageSaveDir = os.path.join(os.path.abspath(dirpath),'ImageSet')
+
+        self.makeDirs(visibleImageSaveDir)
+        self.makeDirs(visibleLabelSaveDir)
+
+        self.statusBar().showMessage('%s . the Visible labels and images will be saved to %s' %
+                                     ('Saved as another folder', dirpath))
+        for imagePath in self.mImgList:
+            basename = os.path.basename(
+                os.path.splitext(imagePath)[0])
+            visibleShapes=[]
+            xmlPath = os.path.join(self.defaultSaveDir, basename + XML_EXT)
+            visibleLabelSavePath = os.path.join(visibleLabelSaveDir, basename + XML_EXT)
+            tVocParseReader = PascalVocReader(xmlPath)
+            shapes = tVocParseReader.getShapes()
+            # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
+            if len(self.showLabel) <= 0:
+                visibleShapes = [self.format_shape(shape) for shape in shapes]
+            else:
+                for shape in shapes:
+                    if shape.label in self.showLabel:
+                        visibleShapes.append(self.format_shape(shape))
+            if len(visibleShapes) <= 0:
+                return
+            else:
+                shutil.copy(imagePath, visibleImageSaveDir)
+                self.labelFile.savePascalVocFormat(visibleLabelSavePath, visibleShapes, self.filePath, self.imageData,
+                                                    self.lineColor.getRgb(), self.fillColor.getRgb())
+                # shutil.copy(xmlPath, visibleLabelSaveDir)
+        pass
+
+
     def changeSavedirDialog(self, _value=False):
         if self.defaultSaveDir is not None:
             path = ustr(self.defaultSaveDir)
@@ -1215,29 +1330,53 @@ class MainWindow(QMainWindow, WindowMixin):
             item = QListWidgetItem(imgPath)
             self.fileListWidget.addItem(item)
 
+    def chooseMessageInfo(self):
+        msg = u'Please input a label name for search!'
+        QMessageBox.information(self, u'Information', msg)
+
     def scanAllImagesAcLabel(self, folderPath):
+
+        if self.defaultSaveDir is None:
+        #     if self.dirty is True:
+        #         self.saveFile()
+        # else:
+            self.changeSavedirDialog()
+            # return
         extensions = ['.%s' % fmt.data().decode("ascii").lower()
                       for fmt in QImageReader.supportedImageFormats()]
         images = []
-
+        if self.chooseLabelTextLine.text():
+            choose_label = self.chooseLabelTextLine.text()
+        else:
+            self.chooseMessageInfo()
+            return
+        #     choose_label
+        print(self.defaultSaveDir)
+        xmls = PascalVocFounder(self.defaultSaveDir,self.chooseLabelTextLine.text())
+        xml_names = xmls.getLabelfiles()
         for root, dirs, files in os.walk(folderPath):
             for file in files:
-                if file.lower().endswith(tuple(extensions)):
+                if file.lower().endswith(tuple(extensions)) and os.path.splitext(file)[0] in xml_names:
                     relativePath = os.path.join(root, file)
                     path = ustr(os.path.abspath(relativePath))
                     images.append(path)
         images.sort(key=lambda x: x.lower())
         return images
 
-    def importImagesAcLabel(self, dirpath):
-        if not self.mayContinue() or not dirpath:
-            return
+    def importImagesAcLabel(self):
+        if not (self.lastOpenDir and os.path.exists(self.lastOpenDir)):
+            self.openDirDialog()
 
-        self.lastOpenDir = dirpath
-        self.dirname = dirpath
+        # self.lastOpenDir = dirpath
+        # self.dirname = dirpath
         self.filePath = None
         self.fileListWidget.clear()
-        self.mImgList = self.scanAllImagesAcLabel(dirpath)
+        imageList = self.scanAllImagesAcLabel(self.lastOpenDir)
+        if imageList is not None:
+            self.mImgList = imageList
+        else:
+            return
+        
         self.openNextImg()
         for imgPath in self.mImgList:
             item = QListWidgetItem(imgPath)

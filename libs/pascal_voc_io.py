@@ -5,6 +5,7 @@ from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, SubElement
 from lxml import etree
 import codecs
+import os
 
 XML_EXT = '.xml'
 ENCODE_METHOD = 'utf-8'
@@ -172,26 +173,43 @@ class PascalVocReader:
             self.addShape(label, bndbox, difficult)
         return True
 
-    def getNameAcLabel(self, ac_labels):
-        assert self.filepath.endswith(XML_EXT), "Unsupport file format"
-        parser = etree.XMLParser(encoding=ENCODE_METHOD)
-        xmltree = ElementTree.parse(self.filepath, parser=parser).getroot()
-        filename = xmltree.find('filename').text
+class PascalVocFounder:
+    def __init__(self, filepath, labelname):
+        # shapes type:
+        # [labbel, [(x1,y1), (x2,y2), (x3,y3), (x4,y4)], color, color, difficult]
+        self.filepath = filepath
+        self.labelname =labelname
+        self.labelfiles = []
+        self.labelnum = 0
         try:
-            verified = xmltree.attrib['verified']
-            if verified == 'yes':
-                self.verified = True
-        except KeyError:
-            self.verified = False
+            self.getNameAcLabel()
+        except:
+            pass
+        
+    def getLabelfiles(self):
+        return self.labelfiles
 
-        for object_iter in xmltree.findall('object'):
-            bndbox = object_iter.find("bndbox")
-            label = object_iter.find('name').text
-            # Add chris
-            difficult = False
-            if object_iter.find('difficult') is not None:
-                difficult = bool(int(object_iter.find('difficult').text))
-            if label in ac_labels:
-                self.addShape(label, bndbox, difficult)
+    def getLabelnum(self):
+        return self.labelnum
+
+    def getNameAcLabel(self):
+        # assert self.filepath.endswith(XML_EXT), "Unsupport file format"
+        self.labelfiles.clear()
+        for root, _, files in os.walk(self.filepath):
+            for file in files:
+                isFirstRead = True
+                if file.lower().endswith(XML_EXT):
+                    relativePath = os.path.join(os.path.abspath(root), file)
+                    filename = os.path.splitext(file)[0]
+
+                    parser = etree.XMLParser(encoding=ENCODE_METHOD)
+                    xmltree = ElementTree.parse(relativePath, parser=parser).getroot()
+
+                    for object_iter in xmltree.findall('object'):
+                        label = object_iter.find('name').text
+                        self.labelnum += 1
+                        if label == self.labelname and filename not in self.labelfiles and isFirstRead:
+                            isFirstRead = False
+                            self.labelfiles.append(filename)
         return True
 
